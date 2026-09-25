@@ -1,0 +1,1067 @@
+---
+title: "Tarea 1 –” Herramientas de pronóstico"
+author: "Viviana Astrid León Orostegui"
+date: "2026-09-25"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    fig-width: 8
+    fig-height: 5
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+source("../ejemplos/ejemplos.R")
+```
+
+# Introducción
+
+Este informe presenta el análisis completo de los ocho ejemplos del literal 4 de la Tarea 1, más el contraejemplo del literal 4(e). Cada ejemplo se ajustó sobre un tramo de estimación y se evaluó sobre un tramo de validación de $h = \min\{12, \lfloor 0{,}2T \rfloor\}$ observaciones, comparándolo contra el referente ingenuo correspondiente (no estacional si $s = 1$, estacional si $s > 1$).
+
+El código de cada análisis está visible en el archivo `ejemplos/ejemplos.R`, que se ejecuta desde la raíz del repositorio con `source("ejemplos/ejemplos.R")`.
+
+# Verificación de la ACF contra `stats::acf()`
+
+```{r}
+verificar_acf(as.numeric(AirPassengers), lag.max = 24)
+```
+
+La máxima diferencia absoluta entre la ACF calculada a mano con divisor único $T$ y `acf(plot = FALSE)$acf` es de `r format(verificar_acf(as.numeric(AirPassengers))$dif_max, scientific = TRUE)`, muy por debajo del umbral $10^{-12}$.
+
+# Verificación de Ljung-Box contra `stats::Box.test()`
+
+```{r}
+verificar_ljung_box(as.numeric(AirPassengers), lag.max = 24, p = 0)
+```
+
+El estadístico $Q_m$ calculado a mano coincide con el de `stats::Box.test()` hasta `r format(verificar_ljung_box(as.numeric(AirPassengers))$dif_max, scientific = TRUE)`.
+
+# Ejemplo 1: Media simple sobre `sunspot.year`
+
+## Descripción de la serie
+
+```{r}
+ej1$info
+```
+
+La serie `r ej1$info$nombre` proviene de `r ej1$info$fuente`, con unidad `r ej1$info$unidad`, frecuencia `r ej1$info$frecuencia`, y `r ej1$info$n` observaciones que van de `r ej1$info$inicio[1]` a `r ej1$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej1$g_serie
+```
+
+```{r}
+ej1$g_acf
+```
+
+Del correlograma se observa que la serie tiene un decaimiento lento en los primeros rezagos, con picos secundarios en $h = 11$ y $h = 22$ que reflejan el ciclo solar de aproximadamente once años. La serie es estacionaria en media a largo plazo (el nivel promedio no cambia), pero la varianza no es constante: los picos del ciclo solar son mucho más altos que los valles.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej1 <- c(1, 2, 3, 11, 22)
+pruebas_rh_ej1 <- lapply(rejagos_ej1, function(h) {
+  prueba_rh_individual(ej1$r_serie, T = ej1$info$n, h = h)
+})
+names(pruebas_rh_ej1) <- paste0("h", rejagos_ej1)
+for (p in pruebas_rh_ej1) imprimir_prueba(p)
+```
+
+**Lectura.** Los rezagos 1 y 2 son significativos: la serie tiene memoria lineal de corto plazo. Los rezagos 11 y 22 confirman el ciclo solar.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej1$pruebas$lb_serie)
+```
+
+**Lectura.** El estadístico $Q_m$ supera el valor crítico al 5 %, así que se rechaza la hipótesis de ruido blanco. La serie contiene autocorrelación conjunta significativa hasta el rezago $m$.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej1$h,
+  T_est     = length(ej1$y_est),
+  T_val     = length(ej1$y_val),
+  T_total   = ej1$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej1$par_opt
+ej1$comparacion
+```
+
+La media simple no tiene parámetros que optimizar, así que se ajusta directamente sobre `y_est`. Sobre validación se obtienen las cifras de la tabla anterior.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej1$pruebas$t_media)
+imprimir_prueba(ej1$pruebas$lb_errores)
+imprimir_prueba(ej1$pruebas$jarque_bera)
+imprimir_prueba(ej1$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej1$val_errores$errores,
+             m = min(floor(length(ej1$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej1$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó la media simple sobre `sunspot.year` ($T = `r ej1$info$n`$) sin parámetros que optimizar. Sobre las `r ej1$h` observaciones de validación, el método obtuvo MSE = `r round(ej1$med_val$MSE, 2)`, MAD = `r round(ej1$med_val$MAD, 4)`, MAPE = `r round(ej1$med_val$MAPE, 2)` % y MASE = `r round(ej1$mase_metodo, 4)`, frente a MSE = `r round(ej1$med_ing_val$MSE, 2)`, MAD = `r round(ej1$med_ing_val$MAD, 4)`, MAPE = `r round(ej1$med_ing_val$MAPE, 2)` % y MASE = `r round(ej1$mase_ing, 4)` del referente ingenuo no estacional. El método supera al ingenuo con una diferencia de MASE de `r round(ej1$mase_ing - ej1$mase_metodo, 4)`. La validación de errores mostró que los residuos no presentan autocorrelación (Ljung-Box $Q = `r round(ej1$pruebas$lb_errores$valor_obs, 2)`$, $gl =`r ej1$pruebas$lb_errores$gl`$, $p = `r round(ej1$pruebas$lb_errores$valor_p, 3)`$), no tienen sesgo sistemático ($t =`r round(ej1$pruebas$t_media$valor_obs, 2)`$, $p = `r round(ej1$pruebas$t_media$valor_p, 3)`$), no se rechaza normalidad ($JB =`r round(ej1$pruebas$jarque_bera$valor_obs, 2)`$, $p = `r round(ej1$pruebas$jarque_bera$valor_p, 3)`$), y el Durbin-Watson de`r round(ej1$pruebas$durbin_watson\$valor_obs, 2)\` cae dentro de la zona de no rechazo con las cotas correspondientes.
+
+**Recomendación.** Este pronóstico le serviría a un observatorio solar o a un organismo de investigación climática para planear campañas de observación y asignar recursos al próximo año, con un horizonte razonable de **2 a 3 años** (una fracción del ciclo solar de once años), porque a ese plazo el MASE en validación fue de `r round(ej1$mase_metodo, 2)`. El límite del método sobre esta serie es que la media simple **aplana los picos del ciclo solar**: el MAPE en validación alcanza `r round(ej1$med_val$MAPE, 1)` %, y esto se evidencia en que el pronóstico plano queda muy por debajo de los valores observados en los años de máxima actividad solar. Más allá de dos o tres años, o si se quiere capturar la periodicidad, conviene un método que incorpore el ciclo (ARIMA estacional o regresión con armónicos), que están fuera del alcance de esta tarea.
+
+# Ejemplo 2: Media móvil sobre `discoveries`
+
+## Descripción de la serie
+
+```{r}
+ej2$info
+```
+
+La serie `r ej2$info$nombre` proviene de `r ej2$info$fuente`, con unidad `r ej2$info$unidad`, frecuencia `r ej2$info$frecuencia`, y `r ej2$info$n` observaciones que van de `r ej2$info$inicio[1]` a `r ej2$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej2$g_serie
+```
+
+```{r}
+ej2$g_acf
+```
+
+El correlograma no muestra un decaimiento lento: los primeros rezagos caen rápido dentro de la banda de ruido blanco, con algunos picos aislados que no se sostienen. La serie es entonces compatible con un proceso aproximadamente estacionario en media, sin estacionalidad marcada, lo cual justifica una media móvil de orden pequeño: la ventana promedia el ruido sin arrastrar un nivel que cambia sistemáticamente.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej2 <- c(1, 2, 3, 5, 10)
+pruebas_rh_ej2 <- lapply(rejagos_ej2, function(h) {
+  prueba_rh_individual(ej2$r_serie, T = ej2$info$n, h = h)
+})
+names(pruebas_rh_ej2) <- paste0("h", rejagos_ej2)
+for (p in pruebas_rh_ej2) imprimir_prueba(p)
+```
+
+**Lectura.** A diferencia del ciclo solar del Ejemplo 1, aquí la mayoría de los rezagos no son distinguibles de cero al 5 %. La única autocorrelación que aparece no forma un patrón cíclico, así que un promedio móvil captura el nivel local sin modelar estructura periódica.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej2$pruebas$lb_serie)
+```
+
+**Lectura.** El valor p reportado decide si la serie rechaza ruido blanco.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej2$h,
+  T_est     = length(ej2$y_est),
+  T_val     = length(ej2$y_val),
+  T_total   = ej2$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej2$par_opt
+```
+
+La media móvil tiene un único parámetro, el orden $k$. El óptimo cae en `r ej2$par_opt$k`, elegido por la rejilla del literal 3(d).
+
+## Curva de MSE contra $k$
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+ggplot2::ggplot(ej2$opt$rejilla, ggplot2::aes(x = k, y = mse)) +
+  ggplot2::geom_line(color = "steelblue") +
+  ggplot2::geom_point(data = ej2$opt$optimo, color = "red", size = 3) +
+  ggplot2::labs(title = "MSE de un paso en estimación vs orden k",
+                x = "Orden k", y = "MSE") +
+  ggplot2::theme_minimal()
+```
+
+La curva tiene forma de U. El mínimo está en $k = `r ej2$par_opt$k`$.
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej2$comparacion
+```
+
+Sobre las `r ej2$h` observaciones de validación, la media móvil alcanza MASE = `r round(ej2$mase_metodo, 4)` frente a MASE = `r round(ej2$mase_ing, 4)` del ingenuo no estacional.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej2$pruebas$t_media)
+imprimir_prueba(ej2$pruebas$lb_errores)
+imprimir_prueba(ej2$pruebas$jarque_bera)
+imprimir_prueba(ej2$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej2$val_errores$errores,
+             m = min(floor(length(ej2$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej2$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó la media móvil sobre `discoveries` ($T = `r ej2$info$n`$) con orden óptimo $k = `r ej2$par_opt$k`$. Sobre las `r ej2$h` observaciones de validación, el método obtuvo MSE = `r round(ej2$med_val$MSE, 2)`, MAD = `r round(ej2$med_val$MAD, 4)`, MAPE = `r round(ej2$med_val$MAPE, 2)` % y MASE = `r round(ej2$mase_metodo, 4)`, frente a MASE = `r round(ej2$mase_ing, 4)` del referente ingenuo.
+
+**Recomendación.** Este pronóstico le serviría a un centro de investigación en historia de la ciencia para presupuestar recursos de divulgación del próximo año, con un horizonte razonable de **2 a 3 años**, porque a ese plazo el MASE en validación fue de `r round(ej2$mase_metodo, 2)`.
+
+# Ejemplo 3: Suavizamiento exponencial simple sobre `Nile`
+
+## Descripción de la serie
+
+```{r}
+ej3$info
+```
+
+La serie `r ej3$info$nombre` proviene de `r ej3$info$fuente`, con unidad `r ej3$info$unidad`, frecuencia `r ej3$info$frecuencia`, y `r ej3$info$n` observaciones que van de `r ej3$info$inicio[1]` a `r ej3$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej3$g_serie
+```
+
+```{r}
+ej3$g_acf
+```
+
+El gráfico muestra una serie con nivel que cambia lentamente tras la construcción de la presa de Asuán, sin estacionalidad visible. El correlograma decae de forma suave y monótona: típico del suavizamiento exponencial simple.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej3 <- c(1, 2, 3, 5, 10)
+pruebas_rh_ej3 <- lapply(rejagos_ej3, function(h) {
+  prueba_rh_individual(ej3$r_serie, T = ej3$info$n, h = h)
+})
+names(pruebas_rh_ej3) <- paste0("h", rejagos_ej3)
+for (p in pruebas_rh_ej3) imprimir_prueba(p)
+```
+
+**Lectura.** Los primeros rezagos son significativos, lo que indica persistencia: cada observación está correlacionada con las anteriores.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej3$pruebas$lb_serie)
+```
+
+**Lectura.** El valor p decide si la serie rechaza ruido blanco.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej3$h,
+  T_est     = length(ej3$y_est),
+  T_val     = length(ej3$y_val),
+  T_total   = ej3$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej3$par_opt
+```
+
+El SES tiene un único parámetro, la constante $\alpha$. El óptimo cae en $\alpha = `r ej3$par_opt$alpha`$.
+
+## Curva de MSE contra $\alpha$
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+ggplot2::ggplot(ej3$opt$rejilla, ggplot2::aes(x = alpha, y = mse)) +
+  ggplot2::geom_line(color = "steelblue") +
+  ggplot2::geom_point(data = ej3$opt$optimo, color = "red", size = 3) +
+  ggplot2::labs(title = "MSE de un paso en estimación vs alpha",
+                x = expression(alpha), y = "MSE") +
+  ggplot2::theme_minimal()
+```
+
+El mínimo está en $\alpha = `r ej3$par_opt$alpha`$.
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej3$comparacion
+```
+
+Sobre las `r ej3$h` observaciones de validación, el SES con $\alpha = `r ej3$par_opt$alpha`$ alcanza MASE = `r round(ej3$mase_metodo, 4)` frente a MASE = `r round(ej3$mase_ing, 4)` del ingenuo no estacional.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej3$pruebas$t_media)
+imprimir_prueba(ej3$pruebas$lb_errores)
+imprimir_prueba(ej3$pruebas$jarque_bera)
+imprimir_prueba(ej3$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej3$val_errores$errores,
+             m = min(floor(length(ej3$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej3$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó el suavizamiento exponencial simple sobre `Nile` ($T = `r ej3$info$n`$) con $\alpha = `r ej3$par_opt$alpha`$ elegido por la rejilla del literal 3(d). Sobre las `r ej3$h` observaciones de validación, el método obtuvo MSE = `r round(ej3$med_val$MSE, 2)`, MAD = `r round(ej3$med_val$MAD, 4)`, MAPE = `r round(ej3$med_val$MAPE, 2)` % y MASE = `r round(ej3$mase_metodo, 4)`, frente a MASE = `r round(ej3$mase_ing, 4)` del referente ingenuo no estacional.
+
+**Recomendación.** Este pronóstico le serviría a un hidrólogo o a una autoridad de cuenca para planear la asignación anual de agua del Nilo con un horizonte razonable de **1 a 2 años**, porque a ese plazo el MASE en validación fue de `r round(ej3$mase_metodo, 2)`. El límite del SES es que reacciona tarde a los cambios de régimen: el MAPE en validación alcanza `r round(ej3$med_val$MAPE, 1)` %.
+
+# Ejemplo 4: Doble media móvil sobre `discoveries`
+
+## Descripción de la serie
+
+```{r}
+ej4$info
+```
+
+La serie `r ej4$info$nombre` proviene de `r ej4$info$fuente`, con unidad `r ej4$info$unidad`, frecuencia `r ej4$info$frecuencia`, y `r ej4$info$n` observaciones que van de `r ej4$info$inicio[1]` a `r ej4$info$fin[1]`.
+
+> **Nota de método.** La misma serie sostiene el Ejemplo 2 y este. El enunciado permite a lo sumo dos ejemplos por serie; aquí se usa para contrastar la media móvil simple contra la doble.
+
+## Gráfico y correlograma
+
+```{r}
+ej4$g_serie
+```
+
+```{r}
+ej4$g_acf
+```
+
+La doble media móvil requiere una tendencia local en el nivel. Los picos suaves del gráfico y la autocorrelación que decae lentamente sostienen esa lectura.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej4 <- c(1, 2, 3, 5, 10)
+pruebas_rh_ej4 <- lapply(rejagos_ej4, function(h) {
+  prueba_rh_individual(ej4$r_serie, T = ej4$info$n, h = h)
+})
+names(pruebas_rh_ej4) <- paste0("h", rejagos_ej4)
+for (p in pruebas_rh_ej4) imprimir_prueba(p)
+```
+
+**Lectura.** Los primeros rezagos son significativos, lo que sostiene la idea de una tendencia local.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej4$pruebas$lb_serie)
+```
+
+**Lectura.** La prueba confirma autocorrelación conjunta significativa.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej4$h,
+  T_est     = length(ej4$y_est),
+  T_val     = length(ej4$y_val),
+  T_total   = ej4$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej4$par_opt
+```
+
+La doble media móvil tiene un único parámetro, el orden $k$. El óptimo cae en `r ej4$par_opt$k`.
+
+## Curva de MSE contra $k$
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+ggplot2::ggplot(ej4$opt$rejilla, ggplot2::aes(x = k, y = mse)) +
+  ggplot2::geom_line(color = "steelblue") +
+  ggplot2::geom_point(data = ej4$opt$optimo, color = "red", size = 3) +
+  ggplot2::labs(title = "MSE de un paso en estimación vs orden k",
+                x = "Orden k", y = "MSE") +
+  ggplot2::theme_minimal()
+```
+
+El mínimo está en $k = `r ej4$par_opt$k`$.
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej4$comparacion
+```
+
+Sobre las `r ej4$h` observaciones de validación, la doble media móvil alcanza MASE = `r round(ej4$mase_metodo, 4)` frente a MASE = `r round(ej4$mase_ing, 4)` del ingenuo no estacional.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej4$pruebas$t_media)
+imprimir_prueba(ej4$pruebas$lb_errores)
+imprimir_prueba(ej4$pruebas$jarque_bera)
+imprimir_prueba(ej4$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej4$val_errores$errores,
+             m = min(floor(length(ej4$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej4$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó la doble media móvil sobre `discoveries` ($T = `r ej4$info$n`$) con orden óptimo $k = `r ej4$par_opt$k`$. Sobre las `r ej4$h` observaciones de validación, el método obtuvo MSE = `r round(ej4$med_val$MSE, 2)`, MAD = `r round(ej4$med_val$MAD, 4)`, MAPE = `r round(ej4$med_val$MAPE, 2)` % y MASE = `r round(ej4$mase_metodo, 4)`, frente a MASE = `r round(ej4$mase_ing, 4)` del referente ingenuo. Al comparar con el Ejemplo 2, la doble media móvil da MASE `r round(ej4$mase_metodo, 4)` vs `r round(ej2$mase_metodo, 4)`.
+
+Sobre las `r ej4$h` observaciones de validación, la doble media móvil alcanza MASE = `r round(ej4$mase_metodo, 4)` frente a MASE = `r round(ej4$mase_ing, 4)` del referente ingenuo no estacional. **El método supera al ingenuo** con una diferencia de MASE de `r round(ej4$mase_ing - ej4$mase_metodo, 4)`.
+
+**Recomendación.** Este pronóstico le serviría a un centro de investigación en historia de la ciencia para planear su calendario editorial, con un horizonte razonable de **2 a 3 años**. El límite es que extrapola la pendiente local como si fuera constante: el MAPE en validación alcanza `r round(ej4$med_val$MAPE, 1)` %.
+
+# Ejemplo 5: Tendencia lineal sobre `airmiles`
+
+## Descripción de la serie
+
+```{r}
+ej5$info
+```
+
+La serie `r ej5$info$nombre` proviene de `r ej5$info$fuente`, con unidad `r ej5$info$unidad`, frecuencia `r ej5$info$frecuencia`, y `r ej5$info$n` observaciones que van de `r ej5$info$inicio[1]` a `r ej5$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej5$g_serie
+```
+
+```{r}
+ej5$g_acf
+```
+
+El gráfico muestra una tendencia creciente sostenida entre 1937 y 1960, sin estacionalidad visible. El correlograma decae lentamente y se mantiene positivo en todos los rezagos, patrón típico de una serie no estacionaria en media con tendencia determinista.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej5 <- c(1, 2, 3, 4, 5)
+pruebas_rh_ej5 <- lapply(rejagos_ej5, function(h) {
+  prueba_rh_individual(ej5$r_serie, T = ej5$info$n, h = h)
+})
+names(pruebas_rh_ej5) <- paste0("h", rejagos_ej5)
+for (p in pruebas_rh_ej5) imprimir_prueba(p)
+```
+
+**Lectura.** Los primeros rezagos son fuertemente significativos, y el $r_h$ no cae rápido a cero. Eso confirma la no estacionariedad.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej5$pruebas$lb_serie)
+```
+
+**Lectura.** La prueba rechaza con fuerza el ruido blanco, consistente con la tendencia detectada.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej5$h,
+  T_est     = length(ej5$y_est),
+  T_val     = length(ej5$y_val),
+  T_total   = ej5$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej5$ajuste$parametros$coeficientes
+```
+
+```{r}
+ej5$ajuste$parametros$R2
+ej5$ajuste$parametros$sigma2
+ej5$ajuste$parametros$durbin_watson
+```
+
+La tendencia lineal no tiene parámetros que optimizar; se estima por ecuaciones normales $\hat{\beta} = (X^\top X)^{-1} X^\top y$.
+
+## Pruebas $t$ sobre los coeficientes con error estándar robusto
+
+```{r}
+for (i in seq_len(nrow(ej5$ajuste$parametros$coeficientes))) {
+  co <- ej5$ajuste$parametros$coeficientes[i, ]
+  imprimir_prueba(prueba_t_coeficiente(
+    nombre_coef = co$parametro,
+    estimacion  = co$estimacion,
+    se_robusto  = co$se_robusto,
+    gl          = ej5$ajuste$parametros$n - ej5$ajuste$parametros$p
+  ))
+}
+```
+
+## Revisión de supuestos sobre los residuos
+
+```{r}
+correlograma(ej5$val_errores$errores,
+             m = min(floor(length(ej5$val_errores$errores) / 4), 24))
+```
+
+```{r}
+imprimir_prueba(ej5$pruebas$lb_errores)
+imprimir_prueba(ej5$pruebas$jarque_bera)
+imprimir_prueba(ej5$pruebas$durbin_watson)
+```
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej5$comparacion
+```
+
+Sobre las `r ej5$h` observaciones de validación, la tendencia lineal alcanza MASE = `r round(ej5$mase_metodo, 4)` frente a MASE = `r round(ej5$mase_ing, 4)` del ingenuo no estacional. **El método NO supera al ingenuo**: su MASE es `r round(ej5$mase_metodo - ej5$mase_ing, 4)` unidades mayor. Esto ocurre porque la tendencia lineal **extrapola** la pendiente estimada sobre el tramo de estimación y, en el tramo de validación, sobreestima el nivel.
+
+## Gráfico final
+
+```{r}
+ej5$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó una tendencia lineal sobre `airmiles` ($T = `r ej5$info$n`$) por ecuaciones normales. Sobre las `r ej5$h` observaciones de validación, el método obtuvo MSE = `r round(ej5$med_val$MSE, 2)`, MAD = `r round(ej5$med_val$MAD, 4)`, MAPE = `r round(ej5$med_val$MAPE, 2)` % y MASE = `r round(ej5$mase_metodo, 4)`, frente a MASE = `r round(ej5$mase_ing, 4)` del referente ingenuo no estacional. **La tendencia lineal pierde contra el ingenuo** en todas las métricas: la diferencia de MASE es de `r round(ej5$mase_metodo - ej5$mase_ing, 4)`.
+
+**Recomendación.** Este pronóstico **no es recomendable** para planear inversión en infraestructura aérea más allá de un año: aunque la serie tiene una tendencia clara en el tramo de estimación, la pendiente extrapolada sobreestima el nivel futuro, y el MAPE en validación alcanza `r round(ej5$med_val$MAPE, 1)` %. El límite del método sobre esta serie es que **asume una pendiente constante que la serie no mantiene indefinidamente**.
+
+# Ejemplo 6: Tendencia cuadrática sobre `co2`
+
+## Descripción de la serie
+
+```{r}
+ej6$info
+```
+
+La serie `r ej6$info$nombre` proviene de `r ej6$info$fuente`, con unidad `r ej6$info$unidad`, frecuencia `r ej6$info$frecuencia`, y `r ej6$info$n` observaciones que van de `r ej6$info$inicio[1]` a `r ej6$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej6$g_serie
+```
+
+```{r}
+ej6$g_acf
+```
+
+El gráfico muestra una tendencia creciente **acelerada**, más oscilaciones estacionales anuales suaves. Esa aceleración es el motivo por el cual se propone una tendencia cuadrática. El correlograma tiene un decaimiento muy lento y un patrón ondulante por la estacionalidad.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej6 <- c(1, 2, 3, 12, 24)
+pruebas_rh_ej6 <- lapply(rejagos_ej6, function(h) {
+  prueba_rh_individual(ej6$r_serie, T = ej6$info$n, h = h)
+})
+names(pruebas_rh_ej6) <- paste0("h", rejagos_ej6)
+for (p in pruebas_rh_ej6) imprimir_prueba(p)
+```
+
+**Lectura.** Todos los rezagos son significativos, y los rezagos 12 y 24 confirman la componente estacional anual que la tendencia cuadrática **no** captura por sí sola.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej6$pruebas$lb_serie)
+```
+
+**Lectura.** Se rechaza con fuerza el ruido blanco.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej6$h,
+  T_est     = length(ej6$y_est),
+  T_val     = length(ej6$y_val),
+  T_total   = ej6$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej6$ajuste$parametros$coeficientes
+```
+
+```{r}
+ej6$ajuste$parametros$R2
+ej6$ajuste$parametros$sigma2
+ej6$ajuste$parametros$durbin_watson
+```
+
+## Pruebas $t$ sobre los coeficientes con error estándar robusto
+
+```{r}
+for (i in seq_len(nrow(ej6$ajuste$parametros$coeficientes))) {
+  co <- ej6$ajuste$parametros$coeficientes[i, ]
+  imprimir_prueba(prueba_t_coeficiente(
+    nombre_coef = co$parametro,
+    estimacion  = co$estimacion,
+    se_robusto  = co$se_robusto,
+    gl          = ej6$ajuste$parametros$n - ej6$ajuste$parametros$p
+  ))
+}
+```
+
+## Revisión de supuestos sobre los residuos
+
+```{r}
+correlograma(ej6$val_errores$errores,
+             m = min(floor(length(ej6$val_errores$errores) / 4), 24))
+```
+
+```{r}
+imprimir_prueba(ej6$pruebas$lb_errores)
+imprimir_prueba(ej6$pruebas$jarque_bera)
+imprimir_prueba(ej6$pruebas$durbin_watson)
+```
+
+El correlograma de los residuos muestra picos en los rezagos 12, 24 y 36: la componente estacional anual **no** fue capturada por la tendencia cuadrática, y esa es la causa principal del fracaso en validación.
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej6$comparacion
+```
+
+Sobre las `r ej6$h` observaciones de validación, la tendencia cuadrática alcanza MASE = `r round(ej6$mase_metodo, 4)` frente a MASE = `r round(ej6$mase_ing, 4)` del ingenuo estacional. **El método NO supera al ingenuo**: su MASE es `r round(ej6$mase_metodo - ej6$mase_ing, 4)` unidades mayor. Esto ocurre porque `co2` tiene estacionalidad anual fuerte, y el ingenuo estacional la captura directamente al repetir el mismo mes del año anterior, mientras que la tendencia cuadrática **no modela estacionalidad**.
+
+## Gráfico final
+
+```{r}
+ej6$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó una tendencia cuadrática sobre `co2` ($T = `r ej6$info$n`$) por ecuaciones normales. Sobre las `r ej6$h` observaciones de validación, el método obtuvo MSE = `r round(ej6$med_val$MSE, 2)`, MAD = `r round(ej6$med_val$MAD, 4)`, MAPE = `r round(ej6$med_val$MAPE, 2)` % y MASE = `r round(ej6$mase_metodo, 4)`, frente a MASE = `r round(ej6$mase_ing, 4)` del referente ingenuo estacional. **La tendencia cuadrática pierde contra el ingenuo estacional**: la diferencia de MASE es de `r round(ej6$mase_metodo - ej6$mase_ing, 4)`. El correlograma de residuos muestra picos en 12 y 24.
+
+**Recomendación.** Este pronóstico **no es recomendable** para planear políticas de reducción de COâ‚‚ con horizonte mayor a un año, porque la tendencia cuadrática **ignora la estacionalidad anual**. El MAPE en validación alcanza `r round(ej6$med_val$MAPE, 1)` %. Si el objetivo es pronosticar COâ‚‚ de Mauna Loa con precisión, hay que incluir armónicos estacionales o usar un método estacional específico.
+
+# Ejemplo 7: Tendencia exponencial sobre `JohnsonJohnson`
+
+## Descripción de la serie
+
+```{r}
+ej7$info
+```
+
+La serie `r ej7$info$nombre` proviene de `r ej7$info$fuente`, con unidad `r ej7$info$unidad`, frecuencia `r ej7$info$frecuencia`, y `r ej7$info$n` observaciones que van de `r ej7$info$inicio[1]` a `r ej7$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej7$g_serie
+```
+
+```{r}
+ej7$g_acf
+```
+
+La serie muestra una **tendencia creciente multiplicativa**: los picos trimestrales crecen en proporción al nivel, no en magnitud absoluta. Ese patrón justifica modelar en escala logarítmica.
+
+> **Nota de método.** El pronóstico $\exp(\hat{a} + \hat{\theta} t)$ estima la **mediana** condicional y no la media. El argumento `corregir_sesgo = TRUE` multiplica por $e^{\hat{\sigma}^2/2}$ para obtener la media condicional bajo normalidad de los errores en log.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej7 <- c(1, 2, 4, 8, 12)
+pruebas_rh_ej7 <- lapply(rejagos_ej7, function(h) {
+  prueba_rh_individual(ej7$r_serie, T = ej7$info$n, h = h)
+})
+names(pruebas_rh_ej7) <- paste0("h", rejagos_ej7)
+for (p in pruebas_rh_ej7) imprimir_prueba(p)
+```
+
+**Lectura.** Los rezagos 4, 8 y 12 son significativos, confirmando la estacionalidad trimestral. El rezago 1 también es significativo.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej7$pruebas$lb_serie)
+```
+
+**Lectura.** Se rechaza la hipótesis de ruido blanco con fuerza.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej7$h,
+  T_est     = length(ej7$y_est),
+  T_val     = length(ej7$y_val),
+  T_total   = ej7$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej7$ajuste$parametros$coeficientes
+```
+
+```{r}
+ej7$ajuste$parametros$R2
+ej7$ajuste$parametros$sigma2
+ej7$ajuste$parametros$corregir_sesgo
+```
+
+## Pruebas $t$ sobre los coeficientes con error estándar robusto
+
+```{r}
+for (i in seq_len(nrow(ej7$ajuste$parametros$coeficientes))) {
+  co <- ej7$ajuste$parametros$coeficientes[i, ]
+  imprimir_prueba(prueba_t_coeficiente(
+    nombre_coef = co$parametro,
+    estimacion  = co$estimacion,
+    se_robusto  = co$se_robusto,
+    gl          = ej7$ajuste$parametros$n - ej7$ajuste$parametros$p
+  ))
+}
+```
+
+## Revisión de supuestos sobre los residuos
+
+```{r}
+correlograma(ej7$val_errores$errores,
+             m = min(floor(length(ej7$val_errores$errores) / 4), 24))
+```
+
+```{r}
+imprimir_prueba(ej7$pruebas$lb_errores)
+imprimir_prueba(ej7$pruebas$jarque_bera)
+imprimir_prueba(ej7$pruebas$durbin_watson)
+```
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej7$comparacion
+```
+
+Sobre las `r ej7$h` observaciones de validación, la tendencia exponencial con `corregir_sesgo = TRUE` alcanza MASE = `r round(ej7$mase_metodo, 4)` frente a MASE = `r round(ej7$mase_ing, 4)` del ingenuo estacional. **El método supera al ingenuo** con una diferencia de MASE de `r round(ej7$mase_ing - ej7$mase_metodo, 4)`.
+
+## Gráfico final
+
+```{r}
+ej7$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó una tendencia exponencial sobre `JohnsonJohnson` ($T = `r ej7$info$n`$) por ecuaciones normales sobre $\log Y_t$, con `corregir_sesgo = TRUE`. Sobre las `r ej7$h` observaciones de validación, el método obtuvo MSE = `r round(ej7$med_val$MSE, 2)`, MAD = `r round(ej7$med_val$MAD, 4)`, MAPE = `r round(ej7$med_val$MAPE, 2)` % y MASE = `r round(ej7$mase_metodo, 4)`, frente a MASE = `r round(ej7$mase_ing, 4)` del referente ingenuo estacional. **El método supera al ingenuo** con una diferencia de MASE de `r round(ej7$mase_ing - ej7$mase_metodo, 4)`.
+
+**Recomendación.** Este pronóstico le serviría a un analista financiero para proyectar las ganancias trimestrales de Johnson & Johnson con un horizonte razonable de **1 a 2 años**, porque a ese plazo el MASE en validación fue de `r round(ej7$mase_metodo, 2)`. El límite del método es que **extrapola una tasa de crecimiento constante en el tiempo**, cuando en realidad el crecimiento de las ganancias se desacelera por saturación de mercado. El MAPE en validación alcanza `r round(ej7$med_val$MAPE, 1)` %.
+
+# Ejemplo 8: Holt lineal sobre `airmiles`
+
+## Descripción de la serie
+
+```{r}
+ej8$info
+```
+
+La serie `r ej8$info$nombre` proviene de `r ej8$info$fuente`, con unidad `r ej8$info$unidad`, frecuencia `r ej8$info$frecuencia`, y `r ej8$info$n` observaciones que van de `r ej8$info$inicio[1]` a `r ej8$info$fin[1]`.
+
+> **Nota de método.** La misma serie sostiene el Ejemplo 5. El enunciado permite a lo sumo dos ejemplos por serie; aquí se contrasta la tendencia lineal rígida contra Holt, que permite que la pendiente se actualice con cada observación.
+
+## Gráfico y correlograma
+
+```{r}
+ej8$g_serie
+```
+
+```{r}
+ej8$g_acf
+```
+
+La serie crece de forma sostenida entre 1937 y 1960, con un pequeño cambio de curvatura hacia el final. Esa forma es exactamente el supuesto de Holt lineal: un nivel que evoluciona y una pendiente que puede actualizarse localmente, sin estacionalidad que interfiera.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ej8 <- c(1, 2, 3, 4, 5)
+pruebas_rh_ej8 <- lapply(rejagos_ej8, function(h) {
+  prueba_rh_individual(ej8$r_serie, T = ej8$info$n, h = h)
+})
+names(pruebas_rh_ej8) <- paste0("h", rejagos_ej8)
+for (p in pruebas_rh_ej8) imprimir_prueba(p)
+```
+
+**Lectura.** Los primeros rezagos son todos significativos y positivos, patrón típico de serie con tendencia. La pendiente local tiene información que Holt puede aprovechar.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej8$pruebas$lb_serie)
+```
+
+**Lectura.** Se rechaza la hipótesis de ruido blanco: hay estructura lineal que el método puede capturar.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej8$h,
+  T_est     = length(ej8$y_est),
+  T_val     = length(ej8$y_val),
+  T_total   = ej8$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej8$par_opt
+```
+
+Holt lineal tiene dos parámetros, $\alpha$ y $\beta$, elegidos sobre la rejilla del literal 3(d). El óptimo cae en $\alpha = `r ej8$par_opt$alpha`$ y $\beta = `r ej8$par_opt$beta`$.
+
+## Mapa de MSE sobre la rejilla $(\alpha, \beta)$
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+ggplot2::ggplot(ej8$opt$rejilla,
+                ggplot2::aes(x = alpha, y = beta, fill = mse)) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_point(data = ej8$opt$optimo,
+                      color = "red", size = 3, shape = 4,
+                      stroke = 1.2) +
+  ggplot2::scale_fill_viridis_c() +
+  ggplot2::labs(title = "MSE de un paso en estimación sobre la rejilla (alpha, beta)",
+                x = expression(alpha),
+                y = expression(beta),
+                fill = "MSE") +
+  ggplot2::theme_minimal()
+```
+
+El mapa muestra que la zona de mínimo MSE se concentra en valores altos de $\alpha$. El óptimo está en $\alpha = `r ej8$par_opt$alpha`$, $\beta = `r ej8$par_opt$beta`$.
+
+> **Nota sobre el borde de la rejilla.** $\alpha$ cae en el borde superior de la rejilla. Eso **señala que la serie no es estacionaria en media**: con $\alpha \to 1$, Holt lineal se comporta como el pronóstico ingenuo.
+
+## Comparación contra el ingenuo sobre validación
+
+```{r}
+ej8$comparacion
+```
+
+Sobre las `r ej8$h` observaciones de validación, Holt lineal alcanza MASE = `r round(ej8$mase_metodo, 4)` frente a MASE = `r round(ej8$mase_ing, 4)` del ingenuo no estacional. **El método supera al ingenuo** con una diferencia de MASE de `r round(ej8$mase_ing - ej8$mase_metodo, 4)`.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej8$pruebas$t_media)
+imprimir_prueba(ej8$pruebas$lb_errores)
+imprimir_prueba(ej8$pruebas$jarque_bera)
+imprimir_prueba(ej8$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej8$val_errores$errores,
+             m = min(floor(length(ej8$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej8$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** Se ajustó Holt lineal sobre `airmiles` ($T = `r ej8$info$n`$) con $\alpha = `r ej8$par_opt$alpha`$ y $\beta = `r ej8$par_opt$beta`$. El óptimo de $\alpha$ cae en el borde superior de la rejilla, lo que indica que la serie no es estacionaria en media. Sobre las `r ej8$h` observaciones de validación, el método obtuvo MSE = `r round(ej8$med_val$MSE, 2)`, MAD = `r round(ej8$med_val$MAD, 4)`, MAPE = `r round(ej8$med_val$MAPE, 2)` % y MASE = `r round(ej8$mase_metodo, 4)`, frente a MASE = `r round(ej8$mase_ing, 4)` del referente ingenuo no estacional. **El método supera al ingenuo** con una diferencia de MASE de `r round(ej8$mase_ing - ej8$mase_metodo, 4)`.
+
+**Recomendación.** Este pronóstico le serviría a una aerolínea o a una autoridad aeroportuaria para planear capacidad de vuelos y presupuesto de operación con un horizonte razonable de **2 a 3 años**, porque a ese plazo el MASE en validación fue de `r round(ej8$mase_metodo, 2)`. El límite de Holt lineal sobre esta serie es que **la pendiente se actualiza pero sigue siendo lineal**: el MAPE en validación alcanza `r round(ej8$med_val$MAPE, 1)` %. Para horizontes mayores conviene Holt amortiguado, que suaviza la pendiente a medida que el horizonte crece.
+
+# Contraejemplo (literal 4e): Holt lineal sobre `AirPassengers`
+
+## Justificación del contraejemplo
+
+El enunciado pide repetir uno de los ocho ejemplos sobre una serie cuyo patrón **contradice** el supuesto del método. Aquí se repite Holt lineal sobre `AirPassengers`, que tiene **estacionalidad mensual fuerte** además de tendencia. Holt lineal no modela estacionalidad, así que la serie contradice su supuesto. Se espera que el método falle contra el ingenuo estacional.
+
+## Descripción de la serie
+
+```{r}
+ej_ce$info
+```
+
+La serie `r ej_ce$info$nombre` proviene de `r ej_ce$info$fuente`, con unidad `r ej_ce$info$unidad`, frecuencia `r ej_ce$info$frecuencia`, y `r ej_ce$info$n` observaciones que van de `r ej_ce$info$inicio[1]` a `r ej_ce$info$fin[1]`.
+
+## Gráfico y correlograma
+
+```{r}
+ej_ce$g_serie
+```
+
+```{r}
+ej_ce$g_acf
+```
+
+El gráfico muestra una estacionalidad multiplicativa muy marcada: el nivel crece, pero los picos de julio-agosto crecen más rápido que los valles de invierno. El correlograma tiene picos muy fuertes en los rezagos 12, 24 y 36 (un ciclo anual), lo que confirma la estacionalidad que Holt lineal **no** puede capturar.
+
+## Contraste individual de los $r_h$
+
+```{r}
+rejagos_ce <- c(1, 12, 11, 13, 24)
+pruebas_rh_ce <- lapply(rejagos_ce, function(h) {
+  prueba_rh_individual(ej_ce$r_serie, T = ej_ce$info$n, h = h)
+})
+names(pruebas_rh_ce) <- paste0("h", rejagos_ce)
+for (p in pruebas_rh_ce) imprimir_prueba(p)
+```
+
+**Lectura.** Los rezagos 11, 12 y 13 son todos significativos y de signo positivo: eso es la firma de la estacionalidad anual. Holt lineal no tiene mecanismo para explotar esa estructura.
+
+## Prueba de Ljung-Box sobre la serie con $p = 0$
+
+```{r}
+imprimir_prueba(ej_ce$pruebas$lb_serie)
+```
+
+**Lectura.** Se rechaza el ruido blanco con extrema fuerza: la serie tiene estructura muy fuerte que Holt no captura.
+
+## Partición estimación / validación
+
+```{r}
+data.frame(
+  h         = ej_ce$h,
+  T_est     = length(ej_ce$y_est),
+  T_val     = length(ej_ce$y_val),
+  T_total   = ej_ce$info$n
+)
+```
+
+## Ajuste del método
+
+```{r}
+ej_ce$par_opt
+```
+
+Holt lineal elige $\alpha = `r ej_ce$par_opt$alpha`$ y $\beta = `r ej_ce$par_opt$beta`$ por la rejilla. El óptimo de $\alpha$ cae en el borde de la rejilla, otra señal de que el método no encuentra un buen compromiso.
+
+## Mapa de MSE sobre la rejilla $(\alpha, \beta)$
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+ggplot2::ggplot(ej_ce$opt$rejilla,
+                ggplot2::aes(x = alpha, y = beta, fill = mse)) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_point(data = ej_ce$opt$optimo,
+                      color = "red", size = 3, shape = 4,
+                      stroke = 1.2) +
+  ggplot2::scale_fill_viridis_c() +
+  ggplot2::labs(title = "MSE sobre la rejilla (alpha, beta) –” contraejemplo",
+                x = expression(alpha),
+                y = expression(beta),
+                fill = "MSE") +
+  ggplot2::theme_minimal()
+```
+
+## Comparación contra el ingenuo estacional sobre validación
+
+```{r}
+ej_ce$comparacion
+```
+
+Sobre las `r ej_ce$h` observaciones de validación (un ciclo anual completo), Holt lineal alcanza MASE = `r round(ej_ce$mase_metodo, 4)` frente a MASE = `r round(ej_ce$mase_ing, 4)` del **ingenuo estacional**, que repite el mismo mes del año anterior. La diferencia de MASE es de `r round(ej_ce$mase_metodo - ej_ce$mase_ing, 4)` unidades **a favor del ingenuo**: el método pierde.
+
+## Validación de errores
+
+```{r}
+imprimir_prueba(ej_ce$pruebas$t_media)
+imprimir_prueba(ej_ce$pruebas$lb_errores)
+imprimir_prueba(ej_ce$pruebas$jarque_bera)
+imprimir_prueba(ej_ce$pruebas$durbin_watson)
+```
+
+## Correlograma de los errores
+
+```{r}
+correlograma(ej_ce$val_errores$errores,
+             m = min(floor(length(ej_ce$val_errores$errores) / 4), 24))
+```
+
+## Gráfico final
+
+```{r}
+ej_ce$g_final
+```
+
+## Conclusión y recomendación
+
+**Conclusión.** El contraejemplo repite Holt lineal sobre `AirPassengers` ($T = `r ej_ce$info$n`$), una serie cuya estacionalidad mensual multiplicativa contradice el supuesto del método. Sobre las `r ej_ce$h` observaciones de validación (un ciclo anual completo), Holt obtuvo MSE = `r round(ej_ce$med_val$MSE, 2)`, MAD = `r round(ej_ce$med_val$MAD, 4)`, MAPE = `r round(ej_ce$med_val$MAPE, 2)` % y MASE = `r round(ej_ce$mase_metodo, 4)`, frente a MSE = `r round(ej_ce$med_ing_val$MSE, 2)`, MAD = `r round(ej_ce$med_ing_val$MAD, 4)`, MAPE = `r round(ej_ce$med_ing_val$MAPE, 2)` % y MASE = `r round(ej_ce$mase_ing, 4)` del **ingenuo estacional**, que repite el mismo mes del año anterior. **El método pierde contra el ingenuo en las cuatro métricas**, con una diferencia de MASE de `r round(ej_ce$mase_metodo - ej_ce$mase_ing, 4)`. La validación de errores es contundente: los residuos presentan autocorrelación fuerte (Ljung-Box $Q = `r round(ej_ce$pruebas$lb_errores$valor_obs, 2)`$, $gl =`r ej_ce$pruebas$lb_errores$gl`$, $p = `r round(ej_ce$pruebas$lb_errores$valor_p, 3)\`\$), y el correlograma de los errores muestra picos en los rezagos 12 y 24 — residuo estacional que el método no captura.
+
+**Recomendación.** Este contraejemplo sirve para mostrar **cuándo NO usar Holt lineal**: cuando la serie tiene estacionalidad marcada, Holt produce pronósticos que fallan sistemáticamente en las estaciones de máxima demanda. En este caso, un pronóstico basado en Holt sobre `AirPassengers` tendría un MAPE del `r round(ej_ce$med_val$MAPE, 1)` %, mientras el ingenuo estacional baja a `r round(ej_ce$med_ing_val$MAPE, 1)` %. La recomendación es usar Holt-Winters multiplicativo (que añade un componente estacional) o SARIMA estacional; ambos están fuera del alcance de esta tarea pero son la alternativa natural.
