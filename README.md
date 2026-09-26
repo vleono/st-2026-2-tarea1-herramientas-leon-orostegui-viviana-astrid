@@ -1,4 +1,4 @@
-https://github.com/tu-usuario/st-2026-2-tarea1-herramientas-apellidos-nombres
+https://github.com/vleono/st-2026-2-tarea1-herramientas-leon-orostegui-viviana-astrid
 
 # Tarea 1 - Herramientas de pronostico
 
